@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+pydantic
+python-dotenv
+google-cloud-aiplatform
+langchain_classic
+langchain_community
+scikit-learn
+openai
+sentence-transformers
