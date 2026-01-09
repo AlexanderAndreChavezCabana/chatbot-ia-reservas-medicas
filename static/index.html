@@ -205,7 +205,42 @@
         .quick-actions button:hover {
             background: #e0e0e0;
         }
+        /* Estilos para Markdown */
+        .message-content strong {
+            font-weight: 600;
+        }
+        .message-content em {
+            font-style: italic;
+            opacity: 0.9;
+        }
+        .message-content ul, .message-content ol {
+            margin: 8px 0;
+            padding-left: 20px;
+        }
+        .message-content li {
+            margin: 4px 0;
+        }
+        .message-content p {
+            margin: 8px 0;
+        }
+        .message-content p:first-child {
+            margin-top: 0;
+        }
+        .message-content p:last-child {
+            margin-bottom: 0;
+        }
+        .message-content code {
+            background: rgba(0,0,0,0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        .message.user .message-content code {
+            background: rgba(255,255,255,0.2);
+        }
     </style>
+    <!-- Marked.js para renderizar Markdown -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -396,8 +431,20 @@
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${type}`;
             
-            // Convert newlines to <br>
-            const formattedContent = content.replace(/\n/g, '<br>');
+            // Renderizar Markdown usando marked.js
+            let formattedContent;
+            if (typeof marked !== 'undefined') {
+                // Configurar marked para que sea más seguro
+                marked.setOptions({
+                    breaks: true,  // Convertir saltos de línea en <br>
+                    gfm: true,     // GitHub Flavored Markdown
+                    sanitize: false
+                });
+                formattedContent = marked.parse(content);
+            } else {
+                // Fallback si marked no cargó
+                formattedContent = content.replace(/\n/g, '<br>');
+            }
             
             messageDiv.innerHTML = `
                 <div class="message-content">${formattedContent}</div>
