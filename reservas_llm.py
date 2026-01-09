@@ -19,23 +19,46 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 GOOGLE_MODEL = os.getenv("GOOGLE_MODEL", "gemini-1.5-flash")
 
 # Contexto del sistema para el LLM
-SYSTEM_CONTEXT = """Eres un asistente virtual amable y profesional para un sistema de reservas médicas de una clínica.
+SYSTEM_CONTEXT = """Eres "MediBot", el asistente virtual de la Clínica San Rafael. Tu personalidad es cálida, empática y profesional.
 
-Tu rol es:
-- Ayudar a los pacientes a agendar citas médicas
-- Responder preguntas sobre horarios, especialidades, precios y servicios
-- Ser empático y profesional en todo momento
-- Dar respuestas concisas pero completas
-
-Información de la clínica:
+🏥 INFORMACIÓN DE LA CLÍNICA:
+- Nombre: Clínica San Rafael
+- Dirección: Av. Javier Prado 1234, San Isidro, Lima
+- Teléfono: (01) 555-1234 | WhatsApp: 987-654-321
 - Horario: Lunes a Viernes 8:00 AM - 8:00 PM, Sábados 8:00 AM - 2:00 PM
-- Especialidades: Medicina General, Pediatría, Cardiología, Dermatología, Ginecología, Traumatología, Oftalmología, Neurología, Psicología, Nutrición
-- Precios: Consulta General S/.50, Especialista S/.80-120
-- Métodos de pago: Efectivo, tarjeta, Yape/Plin, seguros médicos
-- Teléfono: (01) 555-1234
+- Domingos y feriados: Solo emergencias
 
-Si el paciente quiere agendar una cita, indícale que escriba "quiero una cita" para iniciar el proceso guiado.
-Responde siempre en español y de forma amigable."""
+👨‍⚕️ ESPECIALIDADES Y PRECIOS:
+- Medicina General: S/.50
+- Pediatría: S/.70
+- Cardiología: S/.100
+- Dermatología: S/.80
+- Ginecología: S/.90
+- Traumatología: S/.100
+- Oftalmología: S/.80
+- Neurología: S/.120
+- Psicología: S/.80
+- Nutrición: S/.60
+
+💳 MÉTODOS DE PAGO:
+- Efectivo, Visa, Mastercard, American Express
+- Yape, Plin, transferencia bancaria
+- Seguros: Rímac, Pacífico, Mapfre, La Positiva, EPS
+
+📋 INSTRUCCIONES:
+1. Responde de forma natural y conversacional, como un humano amigable
+2. Varía tus saludos y despedidas, no uses siempre las mismas frases
+3. Si preguntan por agendar cita, diles: "Escribe 'quiero una cita' y te guío paso a paso 😊"
+4. Usa emojis con moderación para hacer la conversación más amigable
+5. Si no sabes algo, sé honesto y ofrece alternativas
+6. Personaliza las respuestas según el contexto de la conversación
+7. Mantén respuestas cortas (2-4 oraciones) a menos que se requiera más detalle
+
+🚫 EVITA:
+- Respuestas robóticas o repetitivas
+- Inventar información médica
+- Dar diagnósticos o recomendaciones médicas específicas
+- Usar siempre la misma estructura de respuesta"""
 
 
 class ChatbotService:
@@ -43,29 +66,46 @@ class ChatbotService:
         self.faq = FAQMatcher(threshold=0.65)
         self.memory = MemoryManager(k=8)
 
-    def _build_prompt(self, user_message: str, context: str = "") -> str:
+    def _build_prompt(self, user_message: str, context: str = "", user_name: str = "") -> str:
         """Construye el prompt completo para Gemini."""
+        import random
+        
+        # Variaciones para hacer el prompt más dinámico
+        response_styles = [
+            "Responde de manera cálida y natural:",
+            "Da una respuesta amigable y útil:",
+            "Responde como un asistente empático:",
+            "Contesta de forma profesional pero cercana:",
+        ]
+        
         full_prompt = f"{SYSTEM_CONTEXT}\n\n"
+        
+        if user_name:
+            full_prompt += f"El paciente se llama: {user_name}\n\n"
+        
         if context:
-            full_prompt += f"Contexto de la conversación:\n{context}\n\n"
-        full_prompt += f"Mensaje del paciente: {user_message}\n\nResponde de forma útil y concisa:"
+            full_prompt += f"📝 Historial reciente de la conversación:\n{context}\n\n"
+        
+        full_prompt += f"💬 Mensaje del paciente: {user_message}\n\n"
+        full_prompt += random.choice(response_styles)
+        
         return full_prompt
 
-    def _call_gemini(self, user_message: str, context: str = "") -> str:
+    def _call_gemini(self, user_message: str, context: str = "", user_name: str = "") -> str:
         """Llama a Google AI Studio (Gemini) API."""
         if not GOOGLE_API_KEY:
             raise RuntimeError("GOOGLE_API_KEY no configurada")
 
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{GOOGLE_MODEL}:generateContent?key={GOOGLE_API_KEY}"
-        full_prompt = self._build_prompt(user_message, context)
+        full_prompt = self._build_prompt(user_message, context, user_name)
         
         payload = {
             "contents": [{"parts": [{"text": full_prompt}]}],
             "generationConfig": {
-                "temperature": 0.7,
+                "temperature": 0.85,  # Más variedad en respuestas
                 "maxOutputTokens": 1024,
-                "topP": 0.95,
-                "topK": 40
+                "topP": 0.92,
+                "topK": 50  # Más opciones de tokens
             }
         }
 
@@ -86,21 +126,21 @@ class ChatbotService:
             print(f"Error llamando a Gemini: {e}")
             raise
 
-    def _call_gemini_stream(self, user_message: str, context: str = "") -> Generator[str, None, None]:
+    def _call_gemini_stream(self, user_message: str, context: str = "", user_name: str = "") -> Generator[str, None, None]:
         """Llama a Google AI Studio (Gemini) API con streaming."""
         if not GOOGLE_API_KEY:
             raise RuntimeError("GOOGLE_API_KEY no configurada")
 
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{GOOGLE_MODEL}:streamGenerateContent?alt=sse&key={GOOGLE_API_KEY}"
-        full_prompt = self._build_prompt(user_message, context)
+        full_prompt = self._build_prompt(user_message, context, user_name)
         
         payload = {
             "contents": [{"parts": [{"text": full_prompt}]}],
             "generationConfig": {
-                "temperature": 0.7,
+                "temperature": 0.85,
                 "maxOutputTokens": 1024,
-                "topP": 0.95,
-                "topK": 40
+                "topP": 0.92,
+                "topK": 50
             }
         }
 
@@ -176,9 +216,10 @@ class ChatbotService:
             try:
                 recent = self.memory.get_recent_messages(user_id, k=4)
                 context = "\n".join([f"{m['role']}: {m['content']}" for m in recent])
+                user_name = user.get("name", "") if user else ""
                 
                 full_text = ""
-                for chunk in self._call_gemini_stream(message, context):
+                for chunk in self._call_gemini_stream(message, context, user_name):
                     full_text += chunk
                     yield {"type": "chunk", "text": chunk}
                 
@@ -250,7 +291,32 @@ class ChatbotService:
                 "is_faq_response": False,
             }
 
-        # 4. Buscar en FAQ
+        # 4. Preguntas informativas → LLM genera respuesta variada
+        info_keywords = ["horario", "hora", "precio", "costo", "cuanto", "cuánto", "pago", "tarjeta", 
+                        "efectivo", "seguro", "especialidad", "doctor", "médico", "yape", "plin",
+                        "abren", "cierran", "atienden", "cobran", "tarifa"]
+        is_info_question = any(kw in message.lower() for kw in info_keywords)
+        
+        if is_info_question and GOOGLE_API_KEY:
+            try:
+                user_name = user.get("name", "") if user else ""
+                text = self._call_gemini(message, "", user_name)
+                self.memory.add_user_message(user_id, message)
+                self.memory.add_ai_message(user_id, text)
+                database.add_message_to_chat(user_id, "user", message)
+                database.add_message_to_chat(user_id, "assistant", text)
+                return {
+                    "reasoning": "Pregunta informativa → Gemini",
+                    "to_user": text,
+                    "data": None,
+                    "action": None,
+                    "is_faq_response": False,
+                }
+            except Exception as e:
+                print(f"Gemini falló para pregunta informativa: {e}")
+                # Si falla, usar FAQ como fallback
+
+        # 5. Buscar en FAQ (fallback si LLM no está disponible)
         faq_answer, sim = self.faq.find_answer(message)
         if faq_answer:
             self.memory.add_user_message(user_id, message)
@@ -266,14 +332,15 @@ class ChatbotService:
                 "faq_similarity": sim,
             }
 
-        # 5. Usar Gemini para respuestas generales
+        # 6. Usar Gemini para respuestas generales
         if GOOGLE_API_KEY:
             try:
-                # Obtener contexto de conversación
+                # Obtener contexto de conversación y nombre del usuario
                 recent = self.memory.get_recent_messages(user_id, k=4)
                 context = "\n".join([f"{m['role']}: {m['content']}" for m in recent])
+                user_name = user.get("name", "") if user else ""
                 
-                text = self._call_gemini(message, context)
+                text = self._call_gemini(message, context, user_name)
                 self.memory.add_user_message(user_id, message)
                 self.memory.add_ai_message(user_id, text)
                 database.add_message_to_chat(user_id, "user", message)
@@ -288,7 +355,7 @@ class ChatbotService:
             except Exception as e:
                 print(f"Gemini falló, usando flow: {e}")
 
-        # 6. Fallback al flujo de reserva
+        # 7. Fallback al flujo de reserva
         result = appointment_flow.process_message(user_id, message)
         reply = result.get("reply", "")
         self.memory.add_user_message(user_id, message)

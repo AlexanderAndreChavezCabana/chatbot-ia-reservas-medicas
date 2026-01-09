@@ -325,7 +325,15 @@
                     document.getElementById('sendBtn').disabled = false;
                     document.getElementById('quickActions').style.display = 'flex';
                     
-                    addMessage('bot', `¡Bienvenido/a ${name}! 😊\n\nPuedo ayudarte a:\n• Agendar citas médicas\n• Responder preguntas frecuentes\n• Ver tus citas programadas\n\n¿En qué puedo ayudarte?`);
+                    // Mensajes de bienvenida variados
+                    const welcomeMessages = [
+                        `¡Hola ${name}! 👋 Qué gusto tenerte aquí.\n\nSoy MediBot, tu asistente de la Clínica San Rafael. Puedo ayudarte a:\n• 📅 Agendar citas médicas\n• 💬 Responder tus preguntas\n• 📋 Ver tus citas programadas\n\n¿En qué te puedo ayudar?`,
+                        `¡Bienvenido/a ${name}! 😊\n\nEstoy aquí para ayudarte con:\n• 📅 Reservar consultas médicas\n• ❓ Resolver tus dudas\n• 📋 Consultar tus citas\n\n¿Qué necesitas hoy?`,
+                        `¡Hola ${name}! 🏥\n\nSoy tu asistente virtual. Puedo:\n• 📅 Agendar citas con especialistas\n• 💡 Darte información sobre la clínica\n• 📋 Mostrar tus reservas\n\n¿Cómo te ayudo?`,
+                        `¡Qué tal ${name}! 👋\n\nBienvenido/a a la Clínica San Rafael. Estoy para ayudarte a:\n• 📅 Programar consultas\n• 🔍 Resolver preguntas\n• 📋 Ver tus citas\n\n¿En qué puedo servirte?`
+                    ];
+                    const randomWelcome = welcomeMessages[Math.floor(Math.random() * welcomeMessages.length)];
+                    addMessage('bot', randomWelcome);
                 } else {
                     const error = await response.json();
                     alert('Error: ' + error.detail);

@@ -3,6 +3,7 @@ Flujo conversacional para reservas de citas médicas.
 """
 from typing import Dict
 import re
+import random
 from datetime import datetime, timedelta
 import reservas_database as database
 
@@ -38,6 +39,67 @@ AVAILABLE_HOURS = [
 ]
 
 BOOK_KEYWORDS = ["cita", "reserv", "agend", "turno", "hora", "consulta", "atender", "doctor", "médico", "medico"]
+
+# === MENSAJES CON VARIACIONES ===
+MESSAGES = {
+    "ask_specialty": [
+        "👨‍⚕️ ¡Perfecto! Vamos a agendar tu cita.\n\n**¿Qué especialidad necesitas?**",
+        "👨‍⚕️ ¡Excelente! Te ayudo a reservar.\n\n**¿En qué especialidad te gustaría atenderte?**",
+        "👨‍⚕️ ¡Genial! Comencemos con tu reserva.\n\n**¿Qué tipo de consulta necesitas?**",
+        "👨‍⚕️ ¡Con gusto te ayudo!\n\n**¿Qué especialidad médica buscas?**",
+    ],
+    "specialty_confirmed": [
+        "✅ Especialidad: **{specialty}**\n\n📅 **¿Qué fecha prefieres?**",
+        "✅ Perfecto, **{specialty}**.\n\n📅 **¿Para qué día te gustaría la cita?**",
+        "✅ Listo, **{specialty}**.\n\n📅 **¿Cuándo te gustaría venir?**",
+        "✅ Excelente elección: **{specialty}**\n\n📅 **¿Qué fecha te viene bien?**",
+    ],
+    "date_confirmed": [
+        "✅ Fecha: **{date}**\n\n🕐 **¿A qué hora prefieres?**",
+        "✅ Perfecto, el **{date}**.\n\n🕐 **¿Qué horario te conviene?**",
+        "✅ Anotado: **{date}**\n\n🕐 **¿A qué hora te gustaría la cita?**",
+        "✅ Excelente, **{date}**.\n\n🕐 **¿Qué hora prefieres?**",
+    ],
+    "date_error": [
+        "⚠️ No pude entender la fecha.\n\nPor favor usa uno de estos formatos:",
+        "🤔 Mmm, no reconozco esa fecha.\n\nIntenta con alguno de estos formatos:",
+        "⚠️ Esa fecha no la entendí bien.\n\nPuedes escribirla así:",
+        "🙈 Ups, no capté la fecha.\n\nPrueba con estos formatos:",
+    ],
+    "time_error": [
+        "⚠️ No pude entender la hora.\n\nPor favor usa formato HH:MM (ej: 09:00, 14:30)",
+        "🤔 No reconozco ese horario.\n\nEscríbelo como HH:MM (ej: 10:00, 15:30)",
+        "⚠️ Esa hora no la entendí.\n\nUsa el formato HH:MM (ej: 08:30, 16:00)",
+    ],
+    "time_unavailable": [
+        "⚠️ Ese horario no está disponible.",
+        "😅 Lo siento, ese horario ya está ocupado.",
+        "⚠️ Esa hora no tenemos disponibilidad.",
+        "🙁 Ese horario no está libre, lo siento.",
+    ],
+    "confirm_success": [
+        "🎉 **¡Cita confirmada exitosamente!**",
+        "🎉 **¡Perfecto! Tu cita está reservada.**",
+        "🎉 **¡Listo! Ya tienes tu cita agendada.**",
+        "🎉 **¡Excelente! Cita confirmada.**",
+    ],
+    "cancelled": [
+        "❌ Proceso cancelado. ¿En qué más puedo ayudarte?",
+        "❌ Listo, he cancelado el proceso. ¿Necesitas algo más?",
+        "❌ Cancelado. ¿Hay algo más en lo que pueda ayudarte?",
+        "❌ Sin problema, lo cancelé. ¿Qué más puedo hacer por ti?",
+    ],
+    "no_appointments": [
+        "📋 No tienes citas programadas.\n\n¿Te gustaría agendar una? Escribe 'quiero una cita'.",
+        "📋 Aún no tienes citas registradas.\n\n¿Quieres reservar una? Solo dime 'agendar cita'.",
+        "📋 No encuentro citas a tu nombre.\n\n¿Deseas programar una consulta?",
+    ],
+}
+
+def _get_message(key: str, **kwargs) -> str:
+    """Obtiene un mensaje aleatorio de la lista."""
+    msg = random.choice(MESSAGES.get(key, ["Mensaje no encontrado"]))
+    return msg.format(**kwargs) if kwargs else msg
 
 
 def _normalize_specialty(text: str) -> str:
@@ -148,36 +210,57 @@ def process_message(user_id: str, message: str) -> Dict:
     # === CANCELAR EN CUALQUIER MOMENTO ===
     if any(word in text for word in ["cancelar", "cancel", "salir", "terminar", "no quiero"]):
         database.set_user_state(user_id, "idle", {})
-        return {"reply": "❌ Proceso cancelado. ¿En qué más puedo ayudarte?\n\nEscribe 'cita' para agendar una nueva consulta."}
+        return {"reply": _get_message("cancelled") + "\n\nEscribe 'cita' para agendar una nueva consulta."}
 
     # === VER CITAS ===
     if any(word in text for word in ["mis citas", "ver citas", "consultar citas", "tengo citas"]):
         appointments = database.get_user_appointments(user_id)
         if appointments:
-            reply = "📋 **Tus citas programadas:**\n\n"
+            headers = [
+                "📋 **Tus citas programadas:**\n\n",
+                "📋 **Aquí están tus citas:**\n\n",
+                "📋 **Estas son tus reservas:**\n\n",
+            ]
+            reply = random.choice(headers)
             for i, apt in enumerate(appointments, 1):
                 reply += f"{i}. **{apt.get('specialty', 'N/A')}**\n"
                 reply += f"   📅 {apt.get('date', 'N/A')} a las {apt.get('time', 'N/A')}\n"
                 reply += f"   Estado: {apt.get('status', 'N/A')}\n\n"
             return {"reply": reply}
         else:
-            return {"reply": "📋 No tienes citas programadas.\n\n¿Te gustaría agendar una? Escribe 'quiero una cita'."}
+            return {"reply": _get_message("no_appointments")}
 
     # === ESTADO: IDLE ===
     if state == "idle":
         if any(k in text for k in BOOK_KEYWORDS):
             database.set_user_state(user_id, "awaiting_specialty", {})
             specialties_list = _format_specialties_list()
+            msg = _get_message("ask_specialty")
             return {
-                "reply": f"👨‍⚕️ ¡Perfecto! Vamos a agendar tu cita.\n\n**¿Qué especialidad necesitas?**\n\n{specialties_list}\n\n_Escribe el nombre de la especialidad o 'cancelar' para salir._"
+                "reply": f"{msg}\n\n{specialties_list}\n\n_Escribe el nombre de la especialidad o 'cancelar' para salir._"
             }
         else:
+            greetings = [
+                "🏥 ¡Hola! Soy tu asistente de reservas médicas.",
+                "🏥 ¡Bienvenido! Estoy aquí para ayudarte.",
+                "🏥 ¡Hola! ¿En qué puedo ayudarte hoy?",
+            ]
             return {
-                "reply": "🏥 Soy tu asistente de reservas médicas.\n\nPuedo ayudarte a:\n• 📅 **Agendar cita** - escribe 'quiero una cita'\n• 📋 **Ver mis citas** - escribe 'mis citas'\n• ❓ **Preguntas** - horarios, precios, especialidades\n\n¿Qué deseas hacer?"
+                "reply": f"{random.choice(greetings)}\n\nPuedo ayudarte a:\n• 📅 **Agendar cita** - escribe 'quiero una cita'\n• 📋 **Ver mis citas** - escribe 'mis citas'\n• ❓ **Preguntas** - horarios, precios, especialidades\n\n¿Qué deseas hacer?"
             }
 
     # === ESTADO: ESPERANDO ESPECIALIDAD ===
     if state == "awaiting_specialty":
+        # Validar que sea una especialidad válida (no keywords de reserva)
+        if any(k in text for k in BOOK_KEYWORDS) and not any(spec.lower() in text for spec in SPECIALTIES.values()):
+            specialties_list = _format_specialties_list()
+            prompts = [
+                "😊 Ya estamos en el proceso de agendar. **¿Qué especialidad necesitas?**",
+                "👍 ¡Ya estamos agendando! Solo dime **¿qué especialidad buscas?**",
+                "😄 Perfecto, estamos en eso. **¿Qué tipo de consulta necesitas?**",
+            ]
+            return {"reply": f"{random.choice(prompts)}\n\n{specialties_list}\n\n_Escribe 'cancelar' para salir._"}
+        
         specialty = _normalize_specialty(message)
         pending["specialty"] = specialty
         database.set_user_state(user_id, "awaiting_date", pending)
@@ -185,8 +268,9 @@ def process_message(user_id: str, message: str) -> Dict:
         today = datetime.now()
         dates_example = f"• Hoy: {today.strftime('%Y-%m-%d')}\n• Mañana: {(today + timedelta(days=1)).strftime('%Y-%m-%d')}"
         
+        msg = _get_message("specialty_confirmed", specialty=specialty)
         return {
-            "reply": f"✅ Especialidad: **{specialty}**\n\n📅 **¿Qué fecha prefieres?**\n\nPuedes escribir:\n{dates_example}\n• O cualquier fecha en formato YYYY-MM-DD o DD/MM/YYYY\n\n_Escribe 'cancelar' para salir._"
+            "reply": f"{msg}\n\nPuedes escribir:\n{dates_example}\n• O cualquier fecha en formato DD/MM/YYYY\n\n_Escribe 'cancelar' para salir._"
         }
 
     # === ESTADO: ESPERANDO FECHA ===
@@ -194,21 +278,28 @@ def process_message(user_id: str, message: str) -> Dict:
         parsed_date = _parse_date(message)
         
         if not parsed_date:
+            msg = _get_message("date_error")
             return {
-                "reply": "⚠️ No pude entender la fecha.\n\nPor favor usa uno de estos formatos:\n• 'hoy' o 'mañana'\n• YYYY-MM-DD (ej: 2026-01-15)\n• DD/MM/YYYY (ej: 15/01/2026)\n\n_Escribe 'cancelar' para salir._"
+                "reply": f"{msg}\n• 'hoy' o 'mañana'\n• DD/MM/YYYY (ej: 15/01/2026)\n\n_Escribe 'cancelar' para salir._"
             }
         
         if not _is_valid_date(parsed_date):
+            errors = [
+                "⚠️ La fecha debe ser hoy o una fecha futura.",
+                "🤔 Esa fecha ya pasó, elige una fecha futura.",
+                "⚠️ Solo puedo agendar para hoy o días posteriores.",
+            ]
             return {
-                "reply": "⚠️ La fecha debe ser hoy o una fecha futura.\n\nPor favor, elige otra fecha.\n\n_Escribe 'cancelar' para salir._"
+                "reply": f"{random.choice(errors)}\n\nPor favor, elige otra fecha.\n\n_Escribe 'cancelar' para salir._"
             }
         
         pending["date"] = parsed_date
         database.set_user_state(user_id, "awaiting_time", pending)
         hours_list = _format_hours_list()
         
+        msg = _get_message("date_confirmed", date=parsed_date)
         return {
-            "reply": f"✅ Fecha: **{parsed_date}**\n\n🕐 **¿A qué hora prefieres?**\n\nHorarios disponibles:\n{hours_list}\n\n_Escribe la hora (ej: 09:00, 14:30) o 'cancelar' para salir._"
+            "reply": f"{msg}\n\nHorarios disponibles:\n{hours_list}\n\n_Escribe la hora (ej: 09:00, 14:30) o 'cancelar' para salir._"
         }
 
     # === ESTADO: ESPERANDO HORA ===
@@ -216,14 +307,16 @@ def process_message(user_id: str, message: str) -> Dict:
         parsed_time = _parse_time(message)
         
         if not parsed_time:
+            msg = _get_message("time_error")
             return {
-                "reply": "⚠️ No pude entender la hora.\n\nPor favor usa formato HH:MM (ej: 09:00, 14:30)\n\n_Escribe 'cancelar' para salir._"
+                "reply": f"{msg}\n\n_Escribe 'cancelar' para salir._"
             }
         
         if parsed_time not in AVAILABLE_HOURS:
             hours_list = _format_hours_list()
+            msg = _get_message("time_unavailable")
             return {
-                "reply": f"⚠️ Ese horario no está disponible.\n\nHorarios disponibles:\n{hours_list}\n\n_Escribe 'cancelar' para salir._"
+                "reply": f"{msg}\n\nHorarios disponibles:\n{hours_list}\n\n_Escribe 'cancelar' para salir._"
             }
         
         pending["time"] = parsed_time
@@ -232,8 +325,13 @@ def process_message(user_id: str, message: str) -> Dict:
         specialty = pending.get("specialty", "N/A")
         date = pending.get("date", "N/A")
         
+        summaries = [
+            "📋 **Resumen de tu cita:**",
+            "📋 **Vamos a confirmar los datos:**",
+            "📋 **Tu cita quedaría así:**",
+        ]
         return {
-            "reply": f"📋 **Resumen de tu cita:**\n\n👨‍⚕️ Especialidad: **{specialty}**\n📅 Fecha: **{date}**\n🕐 Hora: **{parsed_time}**\n👤 Paciente: **{user.get('name', 'N/A')}**\n\n✅ Escribe **'sí'** o **'confirmar'** para reservar\n❌ Escribe **'cancelar'** para cancelar"
+            "reply": f"{random.choice(summaries)}\n\n👨‍⚕️ Especialidad: **{specialty}**\n📅 Fecha: **{date}**\n🕐 Hora: **{parsed_time}**\n👤 Paciente: **{user.get('name', 'N/A')}**\n\n✅ Escribe **'sí'** o **'confirmar'** para reservar\n❌ Escribe **'cancelar'** para cancelar"
         }
 
     # === ESTADO: CONFIRMAR ===
@@ -250,22 +348,43 @@ def process_message(user_id: str, message: str) -> Dict:
             appt_id = database.save_appointment(appt)
             database.set_user_state(user_id, "idle", {})
             
+            msg = _get_message("confirm_success")
+            reminders = [
+                "📍 Recuerda:\n• Llegar 15 minutos antes\n• Traer tu DNI y carnet de seguro\n• Resultados de exámenes previos (si los tienes)\n\n¡Te esperamos! 🏥",
+                "📍 No olvides:\n• Llegar con tiempo\n• Traer documentos de identidad\n• Tu carnet de seguro si tienes\n\n¡Nos vemos! 🏥",
+                "📍 Tips para tu cita:\n• Llega 15 min antes\n• Trae tu DNI\n• Si tienes exámenes previos, tráelos\n\n¡Te esperamos con gusto! 🏥",
+            ]
             return {
-                "reply": f"🎉 **¡Cita confirmada exitosamente!**\n\n📋 ID de cita: **{appt_id}**\n👨‍⚕️ {pending.get('specialty')}\n📅 {pending.get('date')} a las {pending.get('time')}\n\n📍 Recuerda:\n• Llegar 15 minutos antes\n• Traer tu DNI y carnet de seguro\n• Resultados de exámenes previos (si los tienes)\n\n¡Te esperamos! 🏥"
+                "reply": f"{msg}\n\n📋 ID de cita: **{appt_id}**\n👨‍⚕️ {pending.get('specialty')}\n📅 {pending.get('date')} a las {pending.get('time')}\n\n{random.choice(reminders)}"
             }
         
         if any(word in text for word in ["no", "cambiar", "modificar", "editar"]):
             database.set_user_state(user_id, "awaiting_specialty", {})
+            restart_msgs = [
+                "🔄 Sin problema, empecemos de nuevo.\n\n**¿Qué especialidad necesitas?**",
+                "🔄 Listo, vamos desde el inicio.\n\n**¿Qué especialidad buscas?**",
+                "🔄 Ok, reiniciemos.\n\n**¿En qué especialidad te gustaría atenderte?**",
+            ]
             return {
-                "reply": "🔄 Vamos a empezar de nuevo.\n\n**¿Qué especialidad necesitas?**\n\n_Escribe 'cancelar' para salir._"
+                "reply": f"{random.choice(restart_msgs)}\n\n_Escribe 'cancelar' para salir._"
             }
         
+        not_understood = [
+            "🤔 No entendí tu respuesta.",
+            "🤔 Mmm, no capté eso.",
+            "🤔 No estoy seguro de qué quieres hacer.",
+        ]
         return {
-            "reply": "🤔 No entendí tu respuesta.\n\n✅ Escribe **'sí'** para confirmar la cita\n❌ Escribe **'cancelar'** para cancelar\n🔄 Escribe **'cambiar'** para modificar"
+            "reply": f"{random.choice(not_understood)}\n\n✅ Escribe **'sí'** para confirmar la cita\n❌ Escribe **'cancelar'** para cancelar\n🔄 Escribe **'cambiar'** para modificar"
         }
 
     # === FALLBACK ===
     database.set_user_state(user_id, "idle", {})
+    fallbacks = [
+        "🤔 No entendí tu mensaje.",
+        "🤔 Mmm, no estoy seguro de qué necesitas.",
+        "🤔 No capté eso, ¿puedes ser más específico?",
+    ]
     return {
-        "reply": "🤔 No entendí tu mensaje.\n\nPuedo ayudarte a:\n• 📅 **Agendar cita** - escribe 'quiero una cita'\n• 📋 **Ver mis citas** - escribe 'mis citas'\n• ❓ **Preguntas** - sobre horarios, precios, etc.\n\n¿Qué deseas hacer?"
+        "reply": f"{random.choice(fallbacks)}\n\nPuedo ayudarte a:\n• 📅 **Agendar cita** - escribe 'quiero una cita'\n• 📋 **Ver mis citas** - escribe 'mis citas'\n• ❓ **Preguntas** - sobre horarios, precios, etc.\n\n¿Qué deseas hacer?"
     }
