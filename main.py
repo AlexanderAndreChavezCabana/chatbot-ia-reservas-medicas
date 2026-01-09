@@ -1,11 +1,12 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from reservas_models import CreateUserRequest, UserResponse, ChatRequest
 import reservas_database as database
 from reservas_llm import ChatbotService
 import os
+import json
 
 
 @asynccontextmanager
@@ -39,10 +40,33 @@ def create_user(req: CreateUserRequest):
 def chat(req: ChatRequest):
     if not database.user_exists(req.user_id):
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    # Use LLM adapter which includes FAQ and flow
     chatbot = ChatbotService()
     resp = chatbot.handle_chat(req.user_id, req.message)
     return resp
+
+
+@app.post("/chat/stream")
+def chat_stream(req: ChatRequest):
+    """Endpoint con streaming para respuestas en tiempo real."""
+    if not database.user_exists(req.user_id):
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    chatbot = ChatbotService()
+    
+    def generate():
+        for chunk in chatbot.handle_chat_stream(req.user_id, req.message):
+            yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+    
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 
 @app.get("/appointments/{user_id}")
