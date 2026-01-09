@@ -9,10 +9,10 @@ This module supports three modes:
 Setup instructions:
  - Install requirements: `pip install -r requirements.txt`
  - Set Google credentials and config if using Gemini:
-     - `GOOGLE_APPLICATION_CREDENTIALS` → path to service account JSON
-     - `GCP_PROJECT` → GCP project id
-     - `GCP_LOCATION` → region (e.g. `us-central1`)
-     - `GEMINI_MODEL` → model id (default: `gemini-2.5-pro`)
+     - `GOOGLE_APPLICATION_CREDENTIALS` -> path to service account JSON
+     - `GCP_PROJECT` -> GCP project id
+     - `GCP_LOCATION` -> region (e.g. `us-central1`)
+     - `GEMINI_MODEL` -> model id (default: `gemini-2.5-pro`)
      - `USE_GOOGLE_GEMINI=true` to enable
 
 Note: this is a best-effort adapter. API usage may require additional

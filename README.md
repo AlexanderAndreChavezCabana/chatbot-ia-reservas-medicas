@@ -21,7 +21,7 @@ pip install -r requirements.txt
 2. Levantar servidor:
 
 ```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+uvicorn main:app --reload --host 0.0.0.0 --port 8001
 ```
 
 3. Usar `POST /users` para crear un usuario y luego `POST /chat` para iniciar una reserva.

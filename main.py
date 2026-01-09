@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
-from models import CreateUserRequest, UserResponse, ChatRequest
-import database
-import appointment_flow
+from reservas_models import CreateUserRequest, UserResponse, ChatRequest
+import reservas_database as database
+from reservas_llm import ChatbotService
 
 app = FastAPI(title="Reservas Médicas - Chatbot", version="0.1")
 
@@ -24,7 +24,9 @@ def create_user(req: CreateUserRequest):
 def chat(req: ChatRequest):
     if not database.user_exists(req.user_id):
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    resp = appointment_flow.process_message(req.user_id, req.message)
+    # Use LLM adapter which includes FAQ and flow
+    chatbot = ChatbotService()
+    resp = chatbot.handle_chat(req.user_id, req.message)
     return resp
 
 
@@ -38,4 +40,4 @@ def get_appointments(user_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)
