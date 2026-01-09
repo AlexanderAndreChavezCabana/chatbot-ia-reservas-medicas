@@ -59,12 +59,14 @@ class ChatbotService:
             "contents": [{"parts": [{"text": full_prompt}]}],
             "generationConfig": {
                 "temperature": 0.7,
-                "maxOutputTokens": 500
+                "maxOutputTokens": 1024,
+                "topP": 0.95,
+                "topK": 40
             }
         }
 
         try:
-            resp = requests.post(url, json=payload, timeout=30)
+            resp = requests.post(url, json=payload, timeout=120)
             resp.raise_for_status()
             data = resp.json()
             
