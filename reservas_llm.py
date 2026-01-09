@@ -1,9 +1,10 @@
-"""Adaptador LLM/FAQ/flow para reservas (usa reservas_* módulos).
+"""Adaptador LLM/FAQ/flow para reservas médicas.
 
-Flujo: seguridad -> FAQ -> AiStudio (si está habilitado) -> flow de reserva.
+Flujo: seguridad -> FAQ -> Google AI Studio (Gemini) -> flow de reserva.
 """
 import os
 from typing import Dict
+from dotenv import load_dotenv
 import requests
 import reservas_flow as appointment_flow
 import reservas_sequrity as sequrity
@@ -11,48 +12,76 @@ import reservas_database as database
 from reservas_faq import FAQMatcher
 from reservas_memory import MemoryManager
 
-USE_AISTUDIO = os.getenv("USE_AISTUDIO", "false").lower() in ("1", "true", "yes")
-AISTUDIO_API_KEY = os.getenv("AISTUDIO_API_KEY")
-AISTUDIO_MODEL = os.getenv("AISTUDIO_MODEL")
-AISTUDIO_BASE_URL = os.getenv("AISTUDIO_BASE_URL", "https://api.aistudio.example")
+load_dotenv()
+
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+GOOGLE_MODEL = os.getenv("GOOGLE_MODEL", "gemini-1.5-flash")
+
+# Contexto del sistema para el LLM
+SYSTEM_CONTEXT = """Eres un asistente virtual amable y profesional para un sistema de reservas médicas de una clínica.
+
+Tu rol es:
+- Ayudar a los pacientes a agendar citas médicas
+- Responder preguntas sobre horarios, especialidades, precios y servicios
+- Ser empático y profesional en todo momento
+- Dar respuestas concisas pero completas
+
+Información de la clínica:
+- Horario: Lunes a Viernes 8:00 AM - 8:00 PM, Sábados 8:00 AM - 2:00 PM
+- Especialidades: Medicina General, Pediatría, Cardiología, Dermatología, Ginecología, Traumatología, Oftalmología, Neurología, Psicología, Nutrición
+- Precios: Consulta General S/.50, Especialista S/.80-120
+- Métodos de pago: Efectivo, tarjeta, Yape/Plin, seguros médicos
+- Teléfono: (01) 555-1234
+
+Si el paciente quiere agendar una cita, indícale que escriba "quiero una cita" para iniciar el proceso guiado.
+Responde siempre en español y de forma amigable."""
 
 
 class ChatbotService:
     def __init__(self):
-        self.faq = FAQMatcher(threshold=0.85)
+        self.faq = FAQMatcher(threshold=0.65)
         self.memory = MemoryManager(k=8)
 
-    def _call_aistudio(self, user_message: str) -> str:
-        if not AISTUDIO_API_KEY or not AISTUDIO_MODEL:
-            raise RuntimeError("AiStudio credentials or model not configured")
+    def _call_gemini(self, user_message: str, context: str = "") -> str:
+        """Llama a Google AI Studio (Gemini) API."""
+        if not GOOGLE_API_KEY:
+            raise RuntimeError("GOOGLE_API_KEY no configurada")
 
-        url = AISTUDIO_BASE_URL.rstrip("/") + "/v1/generate"
-        headers = {"Authorization": f"Bearer {AISTUDIO_API_KEY}", "Content-Type": "application/json"}
-        payload = {"model": AISTUDIO_MODEL, "input": user_message}
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{GOOGLE_MODEL}:generateContent?key={GOOGLE_API_KEY}"
+        
+        # Construir el prompt con contexto
+        full_prompt = f"{SYSTEM_CONTEXT}\n\n"
+        if context:
+            full_prompt += f"Contexto de la conversación:\n{context}\n\n"
+        full_prompt += f"Mensaje del paciente: {user_message}\n\nResponde de forma útil y concisa:"
+        
+        payload = {
+            "contents": [{"parts": [{"text": full_prompt}]}],
+            "generationConfig": {
+                "temperature": 0.7,
+                "maxOutputTokens": 500
+            }
+        }
 
         try:
-            resp = requests.post(url, headers=headers, json=payload, timeout=15)
+            resp = requests.post(url, json=payload, timeout=30)
             resp.raise_for_status()
             data = resp.json()
-
-            if isinstance(data, dict):
-                for key in ("output", "text", "response", "result", "content"):
-                    if key in data and isinstance(data[key], str):
-                        return data[key]
-
-                if "responses" in data and isinstance(data["responses"], list) and data["responses"]:
-                    first = data["responses"][0]
-                    if isinstance(first, dict) and "content" in first:
-                        return first["content"]
-                    if isinstance(first, str):
-                        return first
-
-            return resp.text
+            
+            if "candidates" in data and data["candidates"]:
+                candidate = data["candidates"][0]
+                if "content" in candidate and "parts" in candidate["content"]:
+                    parts = candidate["content"]["parts"]
+                    if parts and "text" in parts[0]:
+                        return parts[0]["text"]
+            
+            return "Lo siento, no pude generar una respuesta. ¿Puedo ayudarte con algo más?"
         except Exception as e:
-            print("Error calling AiStudio endpoint:", e)
+            print(f"Error llamando a Gemini: {e}")
             raise
 
     def handle_chat(self, user_id: str, message: str) -> Dict:
+        # 1. Verificación de seguridad
         for pal in sequrity.palabras_in:
             if pal in message.lower():
                 return {
@@ -64,6 +93,7 @@ class ChatbotService:
                     "faq_similarity": 0.0,
                 }
 
+        # 2. Buscar en FAQ
         faq_answer, sim = self.faq.find_answer(message)
         if faq_answer:
             self.memory.add_user_message(user_id, message)
@@ -79,32 +109,76 @@ class ChatbotService:
                 "faq_similarity": sim,
             }
 
-        if USE_AISTUDIO:
+        # 3. Verificar si el usuario está en un flujo de reserva
+        user = database.get_user(user_id)
+        user_state = user.get("state", "idle") if user else "idle"
+        
+        # Si está en medio de un flujo de reserva, usar el flow
+        if user_state != "idle":
+            result = appointment_flow.process_message(user_id, message)
+            reply = result.get("reply", "")
+            self.memory.add_user_message(user_id, message)
+            self.memory.add_ai_message(user_id, reply)
+            database.add_message_to_chat(user_id, "user", message)
+            database.add_message_to_chat(user_id, "assistant", reply)
+            return {
+                "reasoning": f"Flujo de reserva activo (estado: {user_state})",
+                "to_user": reply,
+                "data": None,
+                "action": None,
+                "is_faq_response": False,
+            }
+
+        # 4. Detectar intención de reservar
+        booking_keywords = ["cita", "reserv", "agend", "turno", "consulta", "doctor", "médico"]
+        if any(kw in message.lower() for kw in booking_keywords):
+            result = appointment_flow.process_message(user_id, message)
+            reply = result.get("reply", "")
+            self.memory.add_user_message(user_id, message)
+            self.memory.add_ai_message(user_id, reply)
+            database.add_message_to_chat(user_id, "user", message)
+            database.add_message_to_chat(user_id, "assistant", reply)
+            return {
+                "reasoning": "Intención de reserva detectada",
+                "to_user": reply,
+                "data": None,
+                "action": None,
+                "is_faq_response": False,
+            }
+
+        # 5. Usar Gemini para respuestas generales (si está configurado)
+        if GOOGLE_API_KEY:
             try:
-                text = self._call_aistudio(message)
+                # Obtener contexto de conversación
+                recent = self.memory.get_recent_messages(user_id, k=4)
+                context = "\n".join([f"{m['role']}: {m['content']}" for m in recent])
+                
+                text = self._call_gemini(message, context)
                 self.memory.add_user_message(user_id, message)
                 self.memory.add_ai_message(user_id, text)
                 database.add_message_to_chat(user_id, "user", message)
                 database.add_message_to_chat(user_id, "assistant", text)
                 return {
-                    "reasoning": "Respuesta generada por AiStudio",
+                    "reasoning": "Respuesta generada por Gemini",
                     "to_user": text,
                     "data": None,
                     "action": None,
                     "is_faq_response": False,
                 }
-            except Exception:
-                # En caso de fallo con AiStudio, caemos al flow local
-                pass
+            except Exception as e:
+                print(f"Gemini falló, usando flow: {e}")
 
+        # 6. Fallback al flujo de reserva
         result = appointment_flow.process_message(user_id, message)
+        reply = result.get("reply", "")
         self.memory.add_user_message(user_id, message)
-        self.memory.add_ai_message(user_id, result.get("reply", ""))
+        self.memory.add_ai_message(user_id, reply)
         database.add_message_to_chat(user_id, "user", message)
-        database.add_message_to_chat(user_id, "assistant", result.get("reply", ""))
+        database.add_message_to_chat(user_id, "assistant", reply)
         return {
-            "reasoning": "Generado por regla/flow",
-            "to_user": result.get("reply", ""),
+            "reasoning": "Respuesta del flow de reserva",
+            "to_user": reply,
             "data": None,
             "action": None,
+            "is_faq_response": False,
         }
